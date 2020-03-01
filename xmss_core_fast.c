@@ -183,53 +183,39 @@ static void xmss_deserialize_state(const xmss_params *params,
     xmssmt_deserialize_state(params, state, NULL, sk);
 }
 
-static void memswap(void *a, void *b, void *t, unsigned long long len)
-{
-    memcpy(t, a, len);
-    memcpy(a, b, len);
-    memcpy(b, t, len);
-}
 
 /**
- * Swaps the content of two bds_state objects, swapping actual memory rather
- * than pointers.
- * As we're mapping memory chunks in the secret key to bds state objects,
- * it is now necessary to make swaps 'real swaps'. This could be done in the
- * serialization function as well, but that causes more overhead
+ * Move the content of one bds_state object into another
  */
-// TODO this should not be necessary if we keep better track of the states
-static void deep_state_swap(const xmss_params *params,
-                            bds_state *a, bds_state *b)
+static void deep_state_move(const xmss_params *params,
+                            bds_state *dst, bds_state *src)
 {
-    // TODO this is extremely ugly and should be refactored
-    // TODO right now, this ensures that both 'stack' and 'retain' fit
-    unsigned char t[
-        ((params->tree_height + 1) > ((1 << params->bds_k) - params->bds_k - 1)
-         ? (params->tree_height + 1)
-         : ((1 << params->bds_k) - params->bds_k - 1))
-        * params->n];
     unsigned int i;
-
-    memswap(a->stack, b->stack, t, (params->tree_height + 1) * params->n);
-    memswap(&a->stackoffset, &b->stackoffset, t, sizeof(a->stackoffset));
-    memswap(a->stacklevels, b->stacklevels, t, params->tree_height + 1);
-    memswap(a->auth, b->auth, t, params->tree_height * params->n);
-    memswap(a->keep, b->keep, t, (params->tree_height >> 1) * params->n);
+    memmove(dst->stack, src->stack,(params->tree_height + 1) * params->n);
+    dst->stackoffset = src->stackoffset;
+    memmove(dst->stacklevels, src->stacklevels, params->tree_height + 1);
+    memmove(dst->auth, src->auth, params->tree_height * params->n);
+    memmove(dst->keep, src->keep, (params->tree_height >> 1) * params->n);
 
     for (i = 0; i < params->tree_height - params->bds_k; i++) {
-        memswap(&a->treehash[i].h, &b->treehash[i].h, t, sizeof(a->treehash[i].h));
-        memswap(&a->treehash[i].next_idx, &b->treehash[i].next_idx, t, sizeof(a->treehash[i].next_idx));
-        memswap(&a->treehash[i].stackusage, &b->treehash[i].stackusage, t, sizeof(a->treehash[i].stackusage));
-        memswap(&a->treehash[i].completed, &b->treehash[i].completed, t, sizeof(a->treehash[i].completed));
-        memswap(a->treehash[i].node, b->treehash[i].node, t, params->n);
+        dst->treehash[i].h = src->treehash[i].h;
+        dst->treehash[i].next_idx = src->treehash[i].next_idx;
+        dst->treehash[i].stackusage = src->treehash[i].stackusage;
+        dst->treehash[i].completed = src->treehash[i].completed;
+        memmove(dst->treehash[i].node, src->treehash[i].node, params->n);
         #ifdef FORWARD_SECURE
-        memswap(a->treehash[i].seed_active, b->treehash[i].seed_active, t,params->n);
-        memswap(a->treehash[i].seed_next, b->treehash[i].seed_next, t, params->n);
+        memmove(dst->treehash[i].seed_active, src->treehash[i].seed_active, params->n);
+        memmove(dst->treehash[i].seed_next, src->treehash[i].seed_next, params->n);
+        // erase the seeds 
+        memset(src->treehash[i].seed_active, 0, params->n);
+        memset(src->treehash[i].seed_next, 0, params->n);
         #endif
     }
 
-    memswap(a->retain, b->retain, t, ((1 << params->bds_k) - params->bds_k - 1) * params->n);
-    memswap(&a->next_leaf, &b->next_leaf, t, sizeof(a->next_leaf));
+    memmove(dst->retain, src->retain, ((1 << params->bds_k) - params->bds_k - 1) * params->n);
+    dst->next_leaf = src->next_leaf;
+
+    
 }
 
 static int treehash_minheight_on_stack(const xmss_params *params,
@@ -1124,7 +1110,7 @@ int xmssmt_core_sign(const xmss_params *params,
             }
         }
         else if (idx < (1ULL << params->full_height) - 1) {
-            deep_state_swap(params, states+params->d + i, states + i);
+            deep_state_move(params, states + i, states+params->d + i);
 
             set_layer_addr(ots_addr, (i+1));
             set_tree_addr(ots_addr, ((idx + 1) >> ((i+2) * params->tree_height)));
