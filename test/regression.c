@@ -9,10 +9,6 @@
 
 #define XMSS_MLEN 32
 
-#ifndef XMSS_SIGNATURES
-    #define XMSS_SIGNATURES (1<<30)
-#endif
-
 static void hexdump(unsigned char *d, unsigned int l)
 {
     for(unsigned int i=0; i<l  && i < 16;i++)
@@ -55,7 +51,7 @@ int test_case(const char *name, int xmssmt, int num_tests){
 
     printf("pk="); hexdump(pk, sizeof pk);
     printf("sk="); hexdump(sk, sizeof sk);
-    printf("Testing %d %s signatures.. \n", XMSS_SIGNATURES, name);
+    printf("Testing %d %s signatures.. \n", num_tests, name);
 
     for (i = 0; i < num_tests; i++) {
         printf("  - iteration #%d:\n", i);
@@ -125,14 +121,14 @@ int main()
     if(rc) return rc;
 
     // test XMSSMT d=2
-    rc = test_case("XMSSMT-SHA2_12/2_256", 1, 1<<10);
+    rc = test_case("XMSSMT-SHA2_12/2_192", 1, 1<<10);
     if(rc) return rc;
 
     // test XMSSMT d=3
-    rc = test_case("XMSSMT-SHA2_12/3_256", 1, 1<<10);
+    rc = test_case("XMSSMT-SHA2_12/3_192", 1, 1<<10);
     if(rc) return rc;
 
-    rc = test_case("XMSSMT-SHA2_22/2_256", 1, 1<<10);
+    rc = test_case("XMSSMT-SHA2_22/2_192", 1, 1<<10);
     if(rc) return rc;
     return 0;
 }

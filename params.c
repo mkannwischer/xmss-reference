@@ -148,13 +148,13 @@ int xmssmt_str_to_oid(uint32_t *oid, const char *s)
     }
     // These are custom parameter sets for this prototype and testing purposes;
     // they deviate from the RFC
-    else if (!strcmp(s, "XMSSMT-SHA2_12/2_256")) {
+    else if (!strcmp(s, "XMSSMT-SHA2_12/2_192")) {
         *oid = 0x00000031;
     }
-    else if (!strcmp(s, "XMSSMT-SHA2_12/3_256")) {
+    else if (!strcmp(s, "XMSSMT-SHA2_12/3_192")) {
         *oid = 0x00000032;
     }
-    else if (!strcmp(s, "XMSSMT-SHA2_22/2_256")) {
+    else if (!strcmp(s, "XMSSMT-SHA2_22/2_192")) {
         *oid = 0x00000033;
     }
     else {
@@ -312,12 +312,13 @@ int xmssmt_parse_oid(xmss_params *params, const uint32_t oid)
         case 0x00000016:
         case 0x00000017:
         case 0x00000018:
-
+            params->n = 32;
+            break;
         // custom parameter sets
         case 0x00000031:
         case 0x00000032:
         case 0x00000033:
-            params->n = 32;
+            params->n = 24;
             break;
 
         case 0x00000009:
