@@ -10,6 +10,8 @@
 /* This is a result of the OID definitions in the draft; needed for parsing. */
 #define XMSS_OID_LEN 4
 
+#define FORWARD_SECURE
+
 /* This structure will be populated when calling xmss[mt]_parse_oid. */
 typedef struct {
     unsigned int func;

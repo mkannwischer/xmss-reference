@@ -142,3 +142,11 @@ int thash_f(const xmss_params *params,
     }
     return core_hash(params, out, buf, 3 * params->n);
 }
+
+#ifdef FORWARD_SECURE
+int hash_prng(const xmss_params *params, unsigned char *out,
+              const unsigned char *in)
+{
+    return core_hash(params, out, in, params->n);
+}
+#endif

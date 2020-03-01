@@ -107,8 +107,16 @@ void gen_leaf_wots(const xmss_params *params, unsigned char *leaf,
 {
     unsigned char seed[params->n];
     unsigned char pk[params->wots_sig_bytes];
+    #ifdef FORWARD_SECURE
+    unsigned int i;
 
+    // in a forward secure setting, the sk_seed already contains the current seed
+    for(i =0; i < params->n; i++) {
+        seed[i] = sk_seed[i];
+    }
+    #else
     get_seed(params, seed, sk_seed, ots_addr);
+    #endif
     wots_pkgen(params, pk, seed, pub_seed, ots_addr);
 
     l_tree(params, leaf, pk, pub_seed, ltree_addr);

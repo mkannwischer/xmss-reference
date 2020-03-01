@@ -146,6 +146,17 @@ int xmssmt_str_to_oid(uint32_t *oid, const char *s)
     else if (!strcmp(s, "XMSSMT-SHAKE_60/12_512")) {
         *oid = 0x00000020;
     }
+    // These are custom parameter sets for this prototype and testing purposes;
+    // they deviate from the RFC
+    else if (!strcmp(s, "XMSSMT-SHA2_12/2_256")) {
+        *oid = 0x00000031;
+    }
+    else if (!strcmp(s, "XMSSMT-SHA2_12/3_256")) {
+        *oid = 0x00000032;
+    }
+    else if (!strcmp(s, "XMSSMT-SHA2_22/2_256")) {
+        *oid = 0x00000033;
+    }
     else {
         return -1;
     }
@@ -220,7 +231,6 @@ int xmss_parse_oid(xmss_params *params, const uint32_t oid)
         case 0x00000009:
         case 0x0000000c:
             params->full_height = 20;
-
             break;
         default:
             return -1;
@@ -254,6 +264,11 @@ int xmssmt_parse_oid(xmss_params *params, const uint32_t oid)
         case 0x0000000e:
         case 0x0000000f:
         case 0x00000010:
+
+        // custom parameter sets
+        case 0x00000031:
+        case 0x00000032:
+        case 0x00000033:
             params->func = XMSS_SHA2;
             break;
 
@@ -297,6 +312,11 @@ int xmssmt_parse_oid(xmss_params *params, const uint32_t oid)
         case 0x00000016:
         case 0x00000017:
         case 0x00000018:
+
+        // custom parameter sets
+        case 0x00000031:
+        case 0x00000032:
+        case 0x00000033:
             params->n = 32;
             break;
 
@@ -374,6 +394,15 @@ int xmssmt_parse_oid(xmss_params *params, const uint32_t oid)
             params->full_height = 60;
             break;
 
+        // custom parameter sets
+        case 0x00000031:
+        case 0x00000032:
+            params->full_height = 12;
+            break;
+        case 0x00000033:
+            params->full_height = 22;
+            break;
+
         default:
             return -1;
     }
@@ -426,6 +455,17 @@ int xmssmt_parse_oid(xmss_params *params, const uint32_t oid)
         case 0x00000018:
         case 0x00000020:
             params->d = 12;
+            break;
+
+        // custom parameter sets
+        case 0x00000031:
+            params->d = 2;
+            break;
+        case 0x00000032:
+            params->d = 3;
+            break;
+        case 0x00000033:
+            params->d = 2;
             break;
 
         default:

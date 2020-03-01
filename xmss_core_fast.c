@@ -17,6 +17,10 @@ typedef struct{
     unsigned char stackusage;
     unsigned char completed;
     unsigned char *node;
+    #ifdef FORWARD_SECURE
+        unsigned char *seed_active;
+        unsigned char *seed_next;
+    #endif
 } treehash_inst;
 
 typedef struct {
@@ -28,6 +32,9 @@ typedef struct {
     treehash_inst *treehash;
     unsigned char *retain;
     unsigned int next_leaf;
+    #ifdef FORWARD_SECURE
+    unsigned char *left_leaf;
+    #endif
 } bds_state;
 
 /* These serialization functions provide a transition between the current
@@ -41,7 +48,11 @@ static void xmssmt_serialize_state(const xmss_params *params,
     unsigned int i, j;
 
     /* Skip past the 'regular' sk */
+    #ifdef FORWARD_SECURE
+    sk += params->index_bytes + (2 + 2*params->d)*params->n;
+    #else
     sk += params->index_bytes + 4*params->n;
+    #endif
 
     for (i = 0; i < 2*params->d - 1; i++) {
         sk += (params->tree_height + 1) * params->n; /* stack */
@@ -67,6 +78,10 @@ static void xmssmt_serialize_state(const xmss_params *params,
             sk += 1;
 
             sk += params->n; /* node */
+            #ifdef FORWARD_SECURE
+            sk += params->n; /* seed_active */
+            sk += params->n; /* seed_next */
+            #endif
         }
 
         /* retain */
@@ -74,6 +89,11 @@ static void xmssmt_serialize_state(const xmss_params *params,
 
         ull_to_bytes(sk, 4, states[i].next_leaf);
         sk += 4;
+
+        #ifdef FORWARD_SECURE
+        /* left_leaf */
+        sk += params->n;
+        #endif
     }
 }
 
@@ -85,7 +105,11 @@ static void xmssmt_deserialize_state(const xmss_params *params,
     unsigned int i, j;
 
     /* Skip past the 'regular' sk */
+    #ifdef FORWARD_SECURE
+    sk += params->index_bytes + (2 + 2*params->d)*params->n;
+    #else
     sk += params->index_bytes + 4*params->n;
+    #endif
 
     // TODO These data sizes follow from the (former) test xmss_core_fast.c
     // TODO They should be reconsidered / motivated more explicitly
@@ -121,6 +145,14 @@ static void xmssmt_deserialize_state(const xmss_params *params,
 
             states[i].treehash[j].node = sk;
             sk += params->n;
+
+            #ifdef FORWARD_SECURE
+            states[i].treehash[j].seed_active = sk;
+            sk += params->n;
+
+            states[i].treehash[j].seed_next = sk;
+            sk += params->n;
+            #endif
         }
 
         states[i].retain = sk;
@@ -128,6 +160,10 @@ static void xmssmt_deserialize_state(const xmss_params *params,
 
         states[i].next_leaf = bytes_to_ull(sk, 4);
         sk += 4;
+        #ifdef FORWARD_SECURE
+        states[i].left_leaf = sk;
+        sk += params->n;
+        #endif
     }
 
     if (params->d > 1) {
@@ -186,6 +222,10 @@ static void deep_state_swap(const xmss_params *params,
         memswap(&a->treehash[i].stackusage, &b->treehash[i].stackusage, t, sizeof(a->treehash[i].stackusage));
         memswap(&a->treehash[i].completed, &b->treehash[i].completed, t, sizeof(a->treehash[i].completed));
         memswap(a->treehash[i].node, b->treehash[i].node, t, params->n);
+        #ifdef FORWARD_SECURE
+        memswap(a->treehash[i].seed_active, b->treehash[i].seed_active, t,params->n);
+        memswap(a->treehash[i].seed_next, b->treehash[i].seed_next, t, params->n);
+        #endif
     }
 
     memswap(a->retain, b->retain, t, ((1 << params->bds_k) - params->bds_k - 1) * params->n);
@@ -244,16 +284,36 @@ static void treehash_init(const xmss_params *params,
         state->treehash[i].stackusage = 0;
     }
 
+    #ifdef FORWARD_SECURE
+    unsigned char wots_seed[params->n];
+    memcpy(wots_seed, sk_seed, params->n);
+    #endif
+
+
     i = 0;
     for (; idx < lastnode; idx++) {
         set_ltree_addr(ltree_addr, idx);
         set_ots_addr(ots_addr, idx);
+        #ifdef FORWARD_SECURE
+        gen_leaf_wots(params, stack+stackoffset*params->n, wots_seed, pub_seed, ltree_addr, ots_addr);
+        hash_prng(params, wots_seed, wots_seed);
+        #else
         gen_leaf_wots(params, stack+stackoffset*params->n, sk_seed, pub_seed, ltree_addr, ots_addr);
+        #endif
         stacklevels[stackoffset] = 0;
         stackoffset++;
         if (params->tree_height - params->bds_k > 0 && i == 3) {
             memcpy(state->treehash[0].node, stack+stackoffset*params->n, params->n);
         }
+        #ifdef FORWARD_SECURE
+        unsigned int j;
+        for(j=0; j <  params->tree_height - params->bds_k - 1; j++) {
+            if(idx >> j == 3 && (idx & ((1<<j)-1)) == 0) {
+                memcpy(state->treehash[j].seed_next, wots_seed, params->n);
+            }
+        }
+        #endif
+
         while (stackoffset>1 && stacklevels[stackoffset-1] == stacklevels[stackoffset-2]) {
             nodeh = stacklevels[stackoffset-1];
             if (i >> nodeh == 1) {
@@ -304,7 +364,15 @@ static void treehash_update(const xmss_params *params,
 
     unsigned char nodebuffer[2 * params->n];
     unsigned int nodeheight = 0;
+    #ifdef FORWARD_SECURE
+    //sk_seed is not needed here suppress warning
+    (void) sk_seed;
+
+    gen_leaf_wots(params, nodebuffer, treehash->seed_active, pub_seed, ltree_addr, ots_addr);
+    hash_prng(params, treehash->seed_active, treehash->seed_active);
+    #else
     gen_leaf_wots(params, nodebuffer, sk_seed, pub_seed, ltree_addr, ots_addr);
+    #endif
     while (treehash->stackusage > 0 && state->stacklevels[state->stackoffset-1] == nodeheight) {
         memcpy(nodebuffer + params->n, nodebuffer, params->n);
         memcpy(nodebuffer, state->stack + (state->stackoffset-1)*params->n, params->n);
@@ -374,7 +442,7 @@ static char bds_treehash_update(const xmss_params *params,
  * Returns -1 if all leaf nodes have already been processed
  **/
 static char bds_state_update(const xmss_params *params,
-                             bds_state *state, const unsigned char *sk_seed,
+                             bds_state *state, unsigned char *sk_seed,
                              const unsigned char *pub_seed,
                              const uint32_t addr[8])
 {
@@ -407,6 +475,23 @@ static char bds_state_update(const xmss_params *params,
     if (params->tree_height - params->bds_k > 0 && idx == 3) {
         memcpy(state->treehash[0].node, state->stack+state->stackoffset*params->n, params->n);
     }
+
+    #ifdef FORWARD_SECURE
+    hash_prng(params, sk_seed, sk_seed);
+
+    unsigned int j;
+    for(j=0; j <  params->tree_height - params->bds_k-1; j++){
+        // TODO: refactor this:
+        int idxtmp = idx;
+        if(addr[0] == 0) {
+            idxtmp++;
+        }
+        if(idxtmp >> j == 3 && (idxtmp & ((1<<j)-1))==0){
+            memcpy(state->treehash[j].seed_next, sk_seed, params->n);
+        }
+    }
+    #endif
+
     while (state->stackoffset>1 && state->stacklevels[state->stackoffset-1] == state->stacklevels[state->stackoffset-2]) {
         nodeh = state->stacklevels[state->stackoffset-1];
         if (idx >> nodeh == 1) {
@@ -478,7 +563,19 @@ static void bds_round(const xmss_params *params,
     if (tau == 0) {
         set_ltree_addr(ltree_addr, leaf_idx);
         set_ots_addr(ots_addr, leaf_idx);
+
+        #ifdef FORWARD_SECURE
+        // if lowest layer, generate a new leaf
+        // TODO: one could also cache the leaf during the previous signature
+        if(addr[0] == 0){
+            gen_leaf_wots(params, state->auth, sk_seed, pub_seed, ltree_addr, ots_addr);
+        } else {
+            // otherwise use the cached left leaf (as seed was already deleted)
+            memcpy(state->auth, state->left_leaf, params->n);
+        }
+        #else
         gen_leaf_wots(params, state->auth, sk_seed, pub_seed, ltree_addr, ots_addr);
+        #endif
     }
     else {
         set_tree_height(node_addr, (tau-1));
@@ -502,6 +599,10 @@ static void bds_round(const xmss_params *params,
                 state->treehash[i].next_idx = startidx;
                 state->treehash[i].completed = 0;
                 state->treehash[i].stackusage = 0;
+
+                #ifdef FORWARD_SECURE
+                memcpy(state->treehash[i].seed_active, state->treehash[i].seed_next, params->n);
+                #endif
             }
         }
     }
@@ -523,10 +624,18 @@ unsigned long long xmss_xmssmt_core_sk_bytes(const xmss_params *params)
             + params->tree_height + 1
             + params->tree_height * params->n
             + (params->tree_height >> 1) * params->n
+            #ifdef FORWARD_SECURE
+            + (params->tree_height - params->bds_k) * (7 + 3*params->n)
+            + params->n
+            #else
             + (params->tree_height - params->bds_k) * (7 + params->n)
+            #endif
             + ((1 << params->bds_k) - params->bds_k - 1) * params->n
             + 4
          )
+        #ifdef FORWARD_SECURE
+        + (2 * params->d - 2) * params->n  //seeds
+        #endif
         + (params->d - 1) * params->wots_sig_bytes;
 }
 
@@ -671,7 +780,13 @@ int xmss_core_sign(const xmss_params *params,
     set_ots_addr(ots_addr, idx);
 
     // Compute seed for OTS key pair
+    #ifdef FORWARD_SECURE
+    for(i = 0; i < params->n; i++){
+        ots_seed[i] = sk_seed[i];
+    }
+    #else
     get_seed(params, ots_seed, sk_seed, ots_addr);
+    #endif
 
     // Compute WOTS signature
     wots_sign(params, sm, msg_h, ots_seed, pub_seed, ots_addr);
@@ -693,6 +808,15 @@ int xmss_core_sign(const xmss_params *params,
     memcpy(sm, m, mlen);
     *smlen += mlen;
 
+    #ifdef FORWARD_SECURE
+    // move forward active seeds for all tree hash instances
+    for (i = 0; i < params->tree_height-params->bds_k-1; i++) {
+        hash_prng(params, state.treehash[i].seed_next, state.treehash[i].seed_next);
+    }
+
+    // get seed for the next signature and destroy current seed
+    hash_prng(params, sk + params->index_bytes, sk_seed);
+    #endif
     /* Write the updated BDS state back into sk. */
     xmss_serialize_state(params, sk, &state);
 
@@ -709,7 +833,7 @@ int xmssmt_core_keypair(const xmss_params *params,
 {
     unsigned char ots_seed[params->n];
     uint32_t addr[8] = {0};
-    unsigned int i;
+    unsigned int i, j;
     unsigned char *wots_sigs;
 
     // TODO refactor BDS state not to need separate treehash instances
@@ -730,6 +854,30 @@ int xmssmt_core_keypair(const xmss_params *params,
     for (i = 0; i < params->index_bytes; i++) {
         sk[i] = 0;
     }
+
+
+    #ifdef FORWARD_SECURE
+    // Init SK_SEED (params->n byte * params->d) and SK_PRF (params->n byte)
+    randombytes(sk+params->index_bytes, (1 + params->d)*params->n);
+
+    // Init PUB_SEED (params->n byte)
+    randombytes(sk+params->index_bytes + (2 + params->d)*params->n, params->n);
+
+    // Copy PUB_SEED to public key
+    memcpy(pk+params->n, sk+params->index_bytes+ (2 + params->d)*params->n, params->n);
+
+    // next seeds contains the seeds for the NEXT_i trees
+    unsigned char *next_seeds = sk+params->index_bytes+ (3 + params->d)*params->n;
+    // initialize the seed for the next trees
+    // TODO: this can be done in a more efficient way (treehash_init almost computes this)
+    for(i = 0; i < params->d - 1; i++){
+        memcpy(next_seeds + i * params->n, sk+params->index_bytes + i * params->n, params->n);
+        for(j = 0; j < (1U<<params->tree_height); j ++){
+            hash_prng(params, next_seeds + i * params->n, next_seeds + i * params->n);
+        }
+    }
+
+    #else
     // Init SK_SEED (params->n byte) and SK_PRF (params->n byte)
     randombytes(sk+params->index_bytes, 2*params->n);
 
@@ -737,20 +885,47 @@ int xmssmt_core_keypair(const xmss_params *params,
     randombytes(sk+params->index_bytes + 3*params->n, params->n);
     // Copy PUB_SEED to public key
     memcpy(pk+params->n, sk+params->index_bytes+3*params->n, params->n);
+    #endif
 
     // Start with the bottom-most layer
     set_layer_addr(addr, 0);
     // Set up state and compute wots signatures for all but topmost tree root
     for (i = 0; i < params->d - 1; i++) {
         // Compute seed for OTS key pair
+        #ifdef FORWARD_SECURE
+        treehash_init(params, pk, params->tree_height, 0, states + i, sk+params->index_bytes+i*params->n, pk+params->n, addr);
+        set_layer_addr(addr, (i+1));
+        memcpy(ots_seed, sk+params->index_bytes+(i+1)*params->n, params->n);
+        wots_sign(params, wots_sigs + i*params->wots_sig_bytes, pk, ots_seed, pk+params->n, addr);
+
+
+        unsigned char tmp_wots_leaf[params->n];
+        uint32_t ltree_addr[8] = {0};
+        memcpy(ltree_addr, addr, sizeof ltree_addr);
+        set_type(ltree_addr, 1);
+        //TODO: maybe use get pk from sig and then ltree?
+        gen_leaf_wots(params, tmp_wots_leaf, ots_seed, pk+params->n, ltree_addr, addr);
+        memcpy(states[i+1].left_leaf, tmp_wots_leaf, sizeof  tmp_wots_leaf);
+        #else
         treehash_init(params, pk, params->tree_height, 0, states + i, sk+params->index_bytes, pk+params->n, addr);
         set_layer_addr(addr, (i+1));
         get_seed(params, ots_seed, sk + params->index_bytes, addr);
         wots_sign(params, wots_sigs + i*params->wots_sig_bytes, pk, ots_seed, pk+params->n, addr);
+        #endif
     }
     // Address now points to the single tree on layer d-1
+    #ifdef FORWARD_SECURE
+    treehash_init(params, pk, params->tree_height, 0, states + i, sk+params->index_bytes+(params->d - 1)*params->n, pk+params->n, addr);
+    memcpy(sk + params->index_bytes + (1+params->d)*params->n, pk, params->n);
+
+    for (i = 1; i < params->d; i++) {
+        hash_prng(params, sk+params->index_bytes+i*params->n, sk+params->index_bytes+i*params->n);
+    }
+
+    #else
     treehash_init(params, pk, params->tree_height, 0, states + i, sk+params->index_bytes, pk+params->n, addr);
     memcpy(sk + params->index_bytes + 2*params->n, pk, params->n);
+    #endif
 
     xmssmt_serialize_state(params, sk, states);
 
@@ -769,8 +944,12 @@ int xmssmt_core_sign(const xmss_params *params,
                      unsigned char *sm, unsigned long long *smlen,
                      const unsigned char *m, unsigned long long mlen)
 {
+    #ifdef FORWARD_SECURE
+    const unsigned char *pub_root = sk + params->index_bytes + (1 + params->d)*params->n;
+    unsigned char *next_seeds = sk + params->index_bytes + (3 + params->d)*params->n;
+    #else
     const unsigned char *pub_root = sk + params->index_bytes + 2*params->n;
-
+    #endif
     uint64_t idx_tree;
     uint32_t idx_leaf;
     uint64_t i, j;
@@ -806,8 +985,13 @@ int xmssmt_core_sign(const xmss_params *params,
     }
 
     memcpy(sk_seed, sk+params->index_bytes, params->n);
+    #ifdef FORWARD_SECURE
+    memcpy(sk_prf, sk+params->index_bytes+params->d*params->n, params->n);
+    memcpy(pub_seed, sk+params->index_bytes+(2+params->d)*params->n, params->n);
+    #else
     memcpy(sk_prf, sk+params->index_bytes+params->n, params->n);
     memcpy(pub_seed, sk+params->index_bytes+3*params->n, params->n);
+    #endif 
 
     // Update SK
     for (i = 0; i < params->index_bytes; i++) {
@@ -867,8 +1051,12 @@ int xmssmt_core_sign(const xmss_params *params,
     set_tree_addr(ots_addr, idx_tree);
     set_ots_addr(ots_addr, idx_leaf);
 
+    #ifdef FORWARD_SECURE
+    memcpy(ots_seed, sk+params->index_bytes, params->n);
+    #else
     // Compute seed for OTS key pair
     get_seed(params, ots_seed, sk_seed, ots_addr);
+    #endif
 
     // Compute WOTS signature
     wots_sign(params, sm, msg_h, ots_seed, pub_seed, ots_addr);
@@ -899,7 +1087,11 @@ int xmssmt_core_sign(const xmss_params *params,
     set_tree_addr(addr, (idx_tree + 1));
     // mandatory update for NEXT_0 (does not count towards h-k/2) if NEXT_0 exists
     if ((1 + idx_tree) * (1 << params->tree_height) + idx_leaf < (1ULL << params->full_height)) {
+        #ifdef FORWARD_SECURE
+        bds_state_update(params, &states[params->d], next_seeds, pub_seed, addr);
+        #else
         bds_state_update(params, &states[params->d], sk_seed, pub_seed, addr);
+        #endif
     }
 
     for (i = 0; i < params->d; i++) {
@@ -912,12 +1104,21 @@ int xmssmt_core_sign(const xmss_params *params,
             if (i == (unsigned int) (needswap_upto + 1)) {
                 bds_round(params, &states[i], idx_leaf, sk_seed, pub_seed, addr);
             }
+            #ifdef FORWARD_SECURE
+            updates = bds_treehash_update(params, &states[i], updates, sk_seed + i*params->n, pub_seed, addr);
+            #else
             updates = bds_treehash_update(params, &states[i], updates, sk_seed, pub_seed, addr);
+            #endif
+
             set_tree_addr(addr, (idx_tree + 1));
             // if a NEXT-tree exists for this level;
             if ((1 + idx_tree) * (1 << params->tree_height) + idx_leaf < (1ULL << (params->full_height - params->tree_height * i))) {
                 if (i > 0 && updates > 0 && states[params->d + i].next_leaf < (1ULL << params->full_height)) {
+                    #ifdef FORWARD_SECURE
+                    bds_state_update(params, &states[params->d + i], next_seeds + i * params->n, pub_seed, addr);
+                    #else
                     bds_state_update(params, &states[params->d + i], sk_seed, pub_seed, addr);
+                    #endif
                     updates--;
                 }
             }
@@ -928,10 +1129,34 @@ int xmssmt_core_sign(const xmss_params *params,
             set_layer_addr(ots_addr, (i+1));
             set_tree_addr(ots_addr, ((idx + 1) >> ((i+2) * params->tree_height)));
             set_ots_addr(ots_addr, (((idx >> ((i+1) * params->tree_height)) + 1) & ((1 << params->tree_height)-1)));
-
+            #ifdef FORWARD_SECURE
+            memcpy(ots_seed, sk + params->index_bytes + (i+1) * params->n, params->n);
+            #else
             get_seed(params, ots_seed, sk+params->index_bytes, ots_addr);
+            #endif
             wots_sign(params, wots_sigs + i*params->wots_sig_bytes, states[i].stack, ots_seed, pub_seed, ots_addr);
 
+            #ifdef FORWARD_SECURE
+            // if this is a left node, we need to store it for BDS
+            if ((((idx >> ((i+1) * params->tree_height)) + 1) & ((1 << params->tree_height)-1)) % 2 == 0){
+                unsigned char tmp_wots_leaf[params->n];
+                uint32_t ltree_addr[8] = {0};
+                memcpy(ltree_addr, ots_addr, sizeof ltree_addr);
+                set_type(ltree_addr, 1);
+                //TODO: maybe use get pk from sig an then ltree?
+                gen_leaf_wots(params, tmp_wots_leaf, ots_seed, pub_seed, ltree_addr, ots_addr);
+                memcpy(states[i+1].left_leaf, tmp_wots_leaf, sizeof  tmp_wots_leaf);
+            }
+
+
+            // move forward active seeds for all tree hash instances
+            for (j = 0; j < params->tree_height-params->bds_k-1; j++) {
+                if((((idx >> ((i+1) * params->tree_height)) + 1) & ((1 << params->tree_height)-1)) == 1) continue;
+                hash_prng(params, states[i+1].treehash[j].seed_next, states[i+1].treehash[j].seed_next);
+            }
+            // get seed for the next signature and destroy current seed
+            hash_prng(params,sk + params->index_bytes + (i+1) * params->n,sk + params->index_bytes + (i+1) * params->n);
+            #endif
             states[params->d + i].stackoffset = 0;
             states[params->d + i].next_leaf = 0;
 
@@ -946,6 +1171,14 @@ int xmssmt_core_sign(const xmss_params *params,
     memcpy(sm, m, mlen);
     *smlen += mlen;
 
+    #ifdef FORWARD_SECURE
+    // move forward active seeds for all tree hash instances
+    for (i = 0; i < params->tree_height-params->bds_k-1; i++) {
+        hash_prng(params, states[0].treehash[i].seed_next, states[0].treehash[i].seed_next);
+    }
+    // get seed for the next signature and destroy current seed
+    hash_prng(params, sk+params->index_bytes, sk+params->index_bytes);
+    #endif
     xmssmt_serialize_state(params, sk, states);
 
     return 0;
