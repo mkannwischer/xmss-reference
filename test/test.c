@@ -116,7 +116,7 @@ int test_case(const char *name, int xmssmt, int num_tests){
 int main()
 {
     int rc;
-    rc = test_case("XMSSMT-SHA2_22/2_192", 1, 1<<10);
+    rc = test_case("XMSSMT-SHA2_22/2_192", 1, 1<<16);
     if(rc) return rc;
     return 0;
 }

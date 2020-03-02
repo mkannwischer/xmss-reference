@@ -29,7 +29,7 @@ int hash_message(const xmss_params *params, unsigned char *out,
                  unsigned char *m_with_prefix, unsigned long long mlen);
 
 #ifdef FORWARD_SECURE
-int hash_prng(const xmss_params *params, unsigned char *out,
-              const unsigned char *in);
+int hash_prg(const xmss_params *params, unsigned char *out, unsigned char *next_seed,
+              const unsigned char *in, const unsigned char *pk, const uint32_t addr[8]);
 #endif
 #endif

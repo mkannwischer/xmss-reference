@@ -128,7 +128,7 @@ int main()
     rc = test_case("XMSSMT-SHA2_12/3_192", 1, 1<<10);
     if(rc) return rc;
 
-    rc = test_case("XMSSMT-SHA2_22/2_192", 1, 1<<10);
-    if(rc) return rc;
+    rc = test_case("XMSSMT-SHA2_22/2_192", 1, 1<<11);
+    if(rc) return rc;  
     return 0;
 }

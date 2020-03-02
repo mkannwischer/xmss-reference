@@ -153,9 +153,35 @@ int thash_f(const xmss_params *params,
 }
 
 #ifdef FORWARD_SECURE
-int hash_prng(const xmss_params *params, unsigned char *out,
-              const unsigned char *in)
+static void compress_address(unsigned char *out, const uint32_t addr[8])
 {
-    return core_hash(params, out, in, params->n);
+    ull_to_bytes(out,      1, addr[0]); /* drop 3 bytes of the layer field */
+    ull_to_bytes(out + 1,  4, addr[1]);
+    ull_to_bytes(out + 5,  4, addr[2]);
+    ull_to_bytes(out + 9,  4, addr[3]);
+    ull_to_bytes(out + 13, 4, addr[4]);
+}
+
+
+int hash_prg(const xmss_params *params, unsigned char *out, unsigned char *next_seed,
+              const unsigned char *in, const unsigned char *pk, const uint32_t addr[8])
+{
+    unsigned char buf[2*params->n + 17 + 1]; // pk, in, addr, {1,0}
+
+    memcpy(buf, pk, params->n);
+    memcpy(buf + params->n, in, params->n);
+    compress_address(buf + 2*params->n, addr);
+
+    int rc = 0;
+    if(out != NULL) {
+        buf[2*params->n+17] = 0;
+        rc |= core_hash(params, out, buf, sizeof buf);
+    }
+
+    if(next_seed != NULL) {
+        buf[2*params->n+17] = 1;
+        rc |= core_hash(params, next_seed, buf, sizeof buf);
+    }
+    return rc;
 }
 #endif
