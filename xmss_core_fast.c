@@ -816,7 +816,7 @@ int xmss_core_sign(const xmss_params *params,
     *smlen += mlen;
 
     #ifdef FORWARD_SECURE
-    // move forward active seeds for all tree hash instances
+    // move forward next seeds for all tree hash instances
     for (i = 0; i < params->tree_height-params->bds_k-1; i++) {
         set_ots_addr(ots_addr, 1+3*(1<<i)+idx);
         hash_prg(params, NULL, state.treehash[i].seed_next, state.treehash[i].seed_next, pub_seed, ots_addr);
@@ -1156,7 +1156,7 @@ int xmssmt_core_sign(const xmss_params *params,
                 memcpy(states[i+1].left_leaf, tmp_wots_leaf, sizeof  tmp_wots_leaf);
             }
 
-            // move forward active seeds for all tree hash instances
+            // move forward next seeds for all tree hash instances
             for (j = 0; j < params->tree_height-params->bds_k-1; j++) {
                 if((((idx >> ((i+1) * params->tree_height)) + 1) & ((1 << params->tree_height)-1)) == 1) continue;
                 set_layer_addr(ots_addr, i+1);
@@ -1185,7 +1185,7 @@ int xmssmt_core_sign(const xmss_params *params,
 
     #ifdef FORWARD_SECURE
     set_layer_addr(ots_addr, 0);
-    // move forward active seeds for all tree hash instances
+    // move forward next seeds for all tree hash instances
     for (i = 0; i < params->tree_height-params->bds_k-1; i++) {
         int treehash_seed_idx = 1 + (1<<i)*3 + idx;
         idx_tree = treehash_seed_idx >> params->tree_height;
